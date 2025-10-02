@@ -392,3 +392,19 @@ if __name__ == "__main__":
     
     summarizer = PositionBasedSummarizer()
     summarizer.run()
+
+# ----------------------- Importable API for new.py -----------------------
+
+from typing import List as _List
+
+
+def position_based_summary(sentences: _List[str], num_sentences: int) -> str:
+    """Return a position-based summary string matching new.py's behavior.
+
+    The simplest approach used in new.py is to take the first N sentences
+    from the provided list and join them with newlines.
+    """
+    if not sentences or num_sentences <= 0:
+        return ""
+    top_sentences = sentences[:num_sentences]
+    return "\n".join(top_sentences)

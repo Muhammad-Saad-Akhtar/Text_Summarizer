@@ -2,9 +2,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 import nltk
 import re
-import networkx as nx
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity
 from nltk.tokenize import sent_tokenize
 import PyPDF2
@@ -17,7 +17,7 @@ try:
 except LookupError:
     nltk.download('punkt')
 
-class TextRankSummarizer:
+class ClusteringSummarizer:
     def __init__(self):
         self.root = None
         self.current_summary = ""
@@ -69,8 +69,8 @@ class TextRankSummarizer:
         sentences = sent_tokenize(text)
         return [sent.strip() for sent in sentences if len(sent.strip()) > 10]
     
-    def textrank_summary(self, text, num_sentences=5):
-        """Generate TextRank based summary using PageRank algorithm"""
+    def clustering_based_summary(self, text, num_sentences=5):
+        """Generate clustering-based summary"""
         if not text:
             return []
             
@@ -79,29 +79,46 @@ class TextRankSummarizer:
             return sentences
         
         try:
-            # Create TF-IDF matrix for similarity calculation
-            vectorizer = TfidfVectorizer(stop_words='english', lowercase=True, max_features=500)
+            # Create TF-IDF matrix
+            vectorizer = TfidfVectorizer(stop_words='english', lowercase=True, max_features=200)
             tfidf_matrix = vectorizer.fit_transform(sentences)
             
-            # Calculate cosine similarity matrix
-            similarity_matrix = cosine_similarity(tfidf_matrix, tfidf_matrix)
+            # Perform clustering
+            n_clusters = min(num_sentences, len(sentences))
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+            clusters = kmeans.fit_predict(tfidf_matrix.toarray())
             
-            # Create graph and apply PageRank
-            nx_graph = nx.from_numpy_array(similarity_matrix)
+            # Select representative sentences from each cluster
+            summary_sentences = []
+            for cluster_id in range(n_clusters):
+                cluster_sentences = [sentences[i] for i in range(len(sentences)) if clusters[i] == cluster_id]
+                if cluster_sentences:
+                    # Pick the sentence closest to cluster center
+                    cluster_indices = [i for i in range(len(sentences)) if clusters[i] == cluster_id]
+                    cluster_center = kmeans.cluster_centers_[cluster_id]
+                    
+                    best_sentence = None
+                    best_similarity = -1
+                    
+                    for idx in cluster_indices:
+                        similarity = cosine_similarity([tfidf_matrix[idx].toarray()[0]], [cluster_center])[0][0]
+                        if similarity > best_similarity:
+                            best_similarity = similarity
+                            best_sentence = sentences[idx]
+                    
+                    if best_sentence:
+                        summary_sentences.append(best_sentence)
             
-            # Apply PageRank algorithm
-            scores = nx.pagerank(nx_graph, max_iter=100, tol=1e-4, alpha=0.85)
+            # Maintain original order
+            ordered_summary = []
+            for sentence in sentences:
+                if sentence in summary_sentences:
+                    ordered_summary.append(sentence)
             
-            # Get top sentences based on PageRank scores
-            ranked_sentences = sorted(((scores[i], i) for i in range(len(sentences))), reverse=True)
-            top_indices = [ranked_sentences[i][1] for i in range(num_sentences)]
-            top_indices = sorted(top_indices)
-            
-            summary_sentences = [sentences[i] for i in top_indices]
-            return summary_sentences
+            return ordered_summary[:num_sentences]
             
         except Exception as e:
-            messagebox.showerror("Error", f"Error in TextRank processing: {str(e)}")
+            messagebox.showerror("Error", f"Error in clustering processing: {str(e)}")
             return []
     
     def select_file(self):
@@ -150,7 +167,7 @@ class TextRankSummarizer:
         
         # Generate summary
         try:
-            summary_sentences = self.textrank_summary(cleaned_text)
+            summary_sentences = self.clustering_based_summary(cleaned_text)
             if summary_sentences:
                 self.show_summary(summary_sentences, os.path.basename(file_path))
             else:
@@ -161,37 +178,37 @@ class TextRankSummarizer:
     def show_summary(self, summary_sentences, filename):
         """Display summary in a new window with bullet points"""
         summary_window = tk.Toplevel(self.root)
-        summary_window.title(f"TextRank Summary - {filename}")
+        summary_window.title(f"Clustering Summary - {filename}")
         summary_window.geometry("800x600")
-        summary_window.configure(bg='#f1f8e9')
+        summary_window.configure(bg='#fce4ec')
         
         # Create main frame
-        main_frame = tk.Frame(summary_window, bg='#f1f8e9')
+        main_frame = tk.Frame(summary_window, bg='#fce4ec')
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
         # Title
         title_label = tk.Label(main_frame, 
-                              text="TEXTRANK BASED SUMMARY", 
+                              text="CLUSTERING BASED SUMMARY", 
                               font=('Arial', 16, 'bold'),
-                              bg='#f1f8e9', fg='#2e7d32')
+                              bg='#fce4ec', fg='#880e4f')
         title_label.pack(pady=(0, 10))
         
         # File info
         info_label = tk.Label(main_frame, 
-                             text=f"Source: {filename} | Method: TextRank (PageRank) | Sentences: {len(summary_sentences)}", 
+                             text=f"Source: {filename} | Method: K-Means Clustering | Sentences: {len(summary_sentences)}", 
                              font=('Arial', 10),
-                             bg='#f1f8e9', fg='#558b2f')
+                             bg='#fce4ec', fg='#ad1457')
         info_label.pack(pady=(0, 15))
         
         # Summary text area
-        text_frame = tk.Frame(main_frame, bg='#f1f8e9')
+        text_frame = tk.Frame(main_frame, bg='#fce4ec')
         text_frame.pack(fill=tk.BOTH, expand=True)
         
         summary_text = scrolledtext.ScrolledText(text_frame, 
                                                wrap=tk.WORD, 
                                                width=80, height=25,
                                                font=('Arial', 11),
-                                               bg='white', fg='#1b5e20',
+                                               bg='white', fg='#4a148c',
                                                relief=tk.FLAT, borderwidth=2)
         summary_text.pack(fill=tk.BOTH, expand=True)
         
@@ -205,7 +222,7 @@ class TextRankSummarizer:
         summary_text.config(state=tk.DISABLED)
         
         # Buttons frame
-        buttons_frame = tk.Frame(main_frame, bg='#f1f8e9')
+        buttons_frame = tk.Frame(main_frame, bg='#fce4ec')
         buttons_frame.pack(fill=tk.X, pady=(15, 0))
         
         # Save button
@@ -213,7 +230,7 @@ class TextRankSummarizer:
                            text="💾 Save Summary", 
                            command=lambda: self.save_summary(filename),
                            font=('Arial', 11, 'bold'),
-                           bg='#4caf50', fg='white',
+                           bg='#e91e63', fg='white',
                            relief=tk.FLAT, padx=20, pady=8,
                            cursor='hand2')
         save_btn.pack(side=tk.LEFT, padx=(0, 10))
@@ -223,7 +240,7 @@ class TextRankSummarizer:
                             text="✕ Close", 
                             command=summary_window.destroy,
                             font=('Arial', 11, 'bold'),
-                            bg='#f44336', fg='white',
+                            bg='#9c27b0', fg='white',
                             relief=tk.FLAT, padx=20, pady=8,
                             cursor='hand2')
         close_btn.pack(side=tk.RIGHT)
@@ -240,7 +257,7 @@ class TextRankSummarizer:
         
         # Suggest filename
         base_name = os.path.splitext(original_filename)[0]
-        suggested_name = f"{base_name}_textrank_summary.txt"
+        suggested_name = f"{base_name}_clustering_summary.txt"
         
         file_path = filedialog.asksaveasfilename(
             title="Save Summary",
@@ -255,7 +272,7 @@ class TextRankSummarizer:
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as file:
-                    file.write(f"TEXTRANK BASED SUMMARY\n")
+                    file.write(f"CLUSTERING BASED SUMMARY\n")
                     file.write(f"Source: {original_filename}\n")
                     file.write(f"Generated on: {tk.datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                     file.write("="*50 + "\n\n")
@@ -268,26 +285,26 @@ class TextRankSummarizer:
     def create_gui(self):
         """Create the main GUI"""
         self.root = tk.Tk()
-        self.root.title("TextRank Text Summarizer")
+        self.root.title("Clustering-based Text Summarizer")
         self.root.geometry("600x400")
-        self.root.configure(bg='#e8f5e8')
+        self.root.configure(bg='#f3e5f5')
         
         # Main container
-        main_container = tk.Frame(self.root, bg='#e8f5e8')
+        main_container = tk.Frame(self.root, bg='#f3e5f5')
         main_container.pack(fill=tk.BOTH, expand=True, padx=30, pady=30)
         
         # Title
         title_label = tk.Label(main_container, 
-                              text="TEXTRANK TEXT SUMMARIZER", 
+                              text="CLUSTERING TEXT SUMMARIZER", 
                               font=('Arial', 20, 'bold'),
-                              bg='#e8f5e8', fg='#1b5e20')
+                              bg='#f3e5f5', fg='#4a148c')
         title_label.pack(pady=(0, 10))
         
         # Subtitle
         subtitle_label = tk.Label(main_container, 
-                                 text="Graph-based ranking using PageRank algorithm for sentence extraction", 
+                                 text="Groups similar sentences and selects representative samples", 
                                  font=('Arial', 12),
-                                 bg='#e8f5e8', fg='#388e3c')
+                                 bg='#f3e5f5', fg='#7b1fa2')
         subtitle_label.pack(pady=(0, 30))
         
         # Instructions
@@ -295,10 +312,10 @@ class TextRankSummarizer:
 📄 SUPPORTED FORMATS: PDF, Word (.docx), Text (.txt)
 
 🎯 HOW IT WORKS:
-• Creates a graph of sentences based on similarity
-• Applies PageRank algorithm (used by Google) 
-• Ranks sentences by their centrality in the graph
-• Selects highest-ranked sentences for summary
+• Groups sentences into clusters using K-Means algorithm
+• Each cluster represents a different topic/theme
+• Selects the most representative sentence from each cluster
+• Ensures topic diversity in the final summary
 
 🔧 INSTRUCTIONS:
 1. Click 'Select Document' to choose your file
@@ -310,36 +327,36 @@ class TextRankSummarizer:
         instructions_label = tk.Label(main_container, 
                                     text=instructions,
                                     font=('Arial', 11),
-                                    bg='#e8f5e8', fg='#2e7d32',
+                                    bg='#f3e5f5', fg='#6a1b9a',
                                     justify=tk.LEFT)
         instructions_label.pack(pady=(0, 30))
         
-        # Buttons frame
-        buttons_frame = tk.Frame(main_container, bg='#e8f5e8')
+        
+        buttons_frame = tk.Frame(main_container, bg='#f3e5f5')
         buttons_frame.pack(pady=20)
         
-        # Select file button
+        
         select_btn = tk.Button(buttons_frame, 
                              text="📁 Select Document", 
                              command=self.select_file,
                              font=('Arial', 14, 'bold'),
-                             bg='#43a047', fg='white',
+                             bg='#8e24aa', fg='white',
                              relief=tk.FLAT, padx=30, pady=15,
                              cursor='hand2')
         select_btn.pack(pady=10)
         
-        # Exit instruction
+        
         exit_label = tk.Label(main_container, 
                              text="Press ESC to exit the application", 
                              font=('Arial', 10, 'italic'),
-                             bg='#e8f5e8', fg='#689f38')
+                             bg='#f3e5f5', fg='#9575cd')
         exit_label.pack(side=tk.BOTTOM, pady=(20, 0))
         
-        # Bind ESC key to exit
+        
         self.root.bind('<Escape>', lambda e: self.root.quit())
         self.root.focus_set()
         
-        # Center window on screen
+        
         self.root.update_idletasks()
         width = self.root.winfo_width()
         height = self.root.winfo_height()
@@ -359,21 +376,20 @@ class TextRankSummarizer:
                 break
 
 if __name__ == "__main__":
-    # Import datetime for timestamp
+    
     import datetime
     tk.datetime = datetime
     
-    # Install required packages message
-    required_packages = ['nltk', 'scikit-learn', 'networkx', 'PyPDF2', 'python-docx', 'tkinter']
-    print("TextRank Text Summarizer")
+    required_packages = ['nltk', 'scikit-learn', 'PyPDF2', 'python-docx', 'tkinter']
+    print("Clustering-based Text Summarizer")
     print("="*40)
     print("Required packages:", ", ".join(required_packages))
-    print("To install: pip install nltk scikit-learn networkx PyPDF2 python-docx")
+    print("To install: pip install nltk scikit-learn PyPDF2 python-docx")
     print("\nStarting application...")
     print("Press ESC anytime to exit")
     print("="*40)
     
-    summarizer = TextRankSummarizer()
+    summarizer = ClusteringSummarizer()
     summarizer.run()
 
 # ----------------------- Importable API for new.py -----------------------
@@ -381,32 +397,49 @@ if __name__ == "__main__":
 from typing import List as _List
 
 
-def textrank_summary(sentences: _List[str], num_sentences: int) -> str:
-    """Return a TextRank-style summary string matching new.py behavior.
+def clustering_based_summary(sentences: _List[str], num_sentences: int) -> str:
+    """Return a KMeans clustering-based summary string matching new.py behavior.
 
-    - Builds TF-IDF vectors and cosine similarity matrix
-    - Applies PageRank over sentence graph
-    - Returns top-N sentences in original order, joined by \n
-    Uses networkx and scikit-learn, consistent with new.py.
+    - Vectorizes sentences using TF-IDF
+    - Clusters into min(num_sentences, len(sentences)) clusters
+    - Picks the sentence closest to each centroid
+    - Returns selected sentences in original order joined by \n
+    Uses scikit-learn, consistent with new.py.
     """
     if not sentences or num_sentences <= 0:
         return ""
 
     try:
         import numpy as _np
-        import networkx as _nx
         from sklearn.feature_extraction.text import TfidfVectorizer as _TfidfVectorizer
+        from sklearn.cluster import KMeans as _KMeans
         from sklearn.metrics.pairwise import cosine_similarity as _cosine_similarity
     except Exception:
         return "\n".join(sentences[:num_sentences])
 
     vectorizer = _TfidfVectorizer(stop_words='english')
     tfidf_matrix = vectorizer.fit_transform(sentences)
-    similarity_matrix = _cosine_similarity(tfidf_matrix)
-    graph = _nx.from_numpy_array(similarity_matrix)
-    scores = _nx.pagerank(graph)
 
-    ranked = sorted(((scores[i], i) for i in range(len(sentences))), reverse=True)
-    top_indices = sorted([idx for _, idx in ranked[:num_sentences]])
-    summary = [sentences[i] for i in top_indices]
+    n_clusters = min(num_sentences, len(sentences))
+    if n_clusters < 1:
+        return ""
+
+    # KMeans
+    try:
+        kmeans = _KMeans(n_clusters=n_clusters, random_state=0, n_init='auto')
+    except TypeError:
+        # Older scikit-learn versions don't support n_init='auto'
+        kmeans = _KMeans(n_clusters=n_clusters, random_state=0, n_init=10)
+    kmeans.fit(tfidf_matrix)
+
+    selected_indices = []
+    for i in range(n_clusters):
+        centroid = kmeans.cluster_centers_[i]
+        distances = _cosine_similarity([centroid], tfidf_matrix)
+        closest_idx = int(_np.argmax(distances))
+        if closest_idx not in selected_indices:
+            selected_indices.append(closest_idx)
+
+    selected_indices.sort()
+    summary = [sentences[i] for i in selected_indices]
     return "\n".join(summary)

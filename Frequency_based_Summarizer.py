@@ -2,21 +2,27 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 import nltk
 import re
-from sklearn.feature_extraction.text import TfidfVectorizer
-from nltk.tokenize import sent_tokenize
+from collections import Counter
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.corpus import stopwords
 import PyPDF2
 from docx import Document
 import os
-import numpy as np
 
 # Download required NLTK data
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
     nltk.download('punkt')
+    
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords')
 
-class TFIDFSummarizer:
+class FrequencyBasedSummarizer:
     def __init__(self):
+        self.stop_words = set(stopwords.words('english'))
         self.root = None
         self.current_summary = ""
         
@@ -67,8 +73,14 @@ class TFIDFSummarizer:
         sentences = sent_tokenize(text)
         return [sent.strip() for sent in sentences if len(sent.strip()) > 10]
     
-    def tfidf_based_summary(self, text, num_sentences=5):
-        """Generate TF-IDF based summary"""
+    def word_tokenize_and_clean(self, text):
+        """Tokenize and clean words"""
+        words = word_tokenize(text.lower())
+        words = [word for word in words if word.isalnum() and word not in self.stop_words]
+        return words
+    
+    def frequency_based_summary(self, text, num_sentences=5):
+        """Generate frequency-based summary"""
         if not text:
             return []
             
@@ -76,24 +88,24 @@ class TFIDFSummarizer:
         if len(sentences) <= num_sentences:
             return sentences
         
-        try:
-            # Create TF-IDF matrix
-            vectorizer = TfidfVectorizer(stop_words='english', lowercase=True, max_features=1000)
-            tfidf_matrix = vectorizer.fit_transform(sentences)
-            
-            # Calculate sentence scores as sum of TF-IDF scores
-            sentence_scores = np.array(tfidf_matrix.sum(axis=1)).flatten()
-            
-            # Get top sentences
-            top_indices = sentence_scores.argsort()[-num_sentences:][::-1]
-            top_indices = sorted(top_indices)
-            
-            summary_sentences = [sentences[i] for i in top_indices]
-            return summary_sentences
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Error in TF-IDF processing: {str(e)}")
-            return []
+        # Calculate word frequencies
+        words = self.word_tokenize_and_clean(text)
+        word_freq = Counter(words)
+        
+        # Score sentences based on word frequencies
+        sentence_scores = {}
+        for sentence in sentences:
+            sentence_words = self.word_tokenize_and_clean(sentence)
+            score = sum(word_freq[word] for word in sentence_words)
+            sentence_scores[sentence] = score / len(sentence_words) if sentence_words else 0
+        
+        # Select top sentences
+        top_sentences = sorted(sentence_scores.items(), key=lambda x: x[1], reverse=True)
+        summary_sentences = [sent[0] for sent in top_sentences[:num_sentences]]
+        
+        # Maintain original order
+        summary_sentences = sorted(summary_sentences, key=lambda x: sentences.index(x))
+        return summary_sentences
     
     def select_file(self):
         """Open file dialog to select document"""
@@ -141,7 +153,7 @@ class TFIDFSummarizer:
         
         # Generate summary
         try:
-            summary_sentences = self.tfidf_based_summary(cleaned_text)
+            summary_sentences = self.frequency_based_summary(cleaned_text)
             if summary_sentences:
                 self.show_summary(summary_sentences, os.path.basename(file_path))
             else:
@@ -152,37 +164,37 @@ class TFIDFSummarizer:
     def show_summary(self, summary_sentences, filename):
         """Display summary in a new window with bullet points"""
         summary_window = tk.Toplevel(self.root)
-        summary_window.title(f"TF-IDF Summary - {filename}")
+        summary_window.title(f"Frequency-based Summary - {filename}")
         summary_window.geometry("800x600")
-        summary_window.configure(bg='#f8f9fa')
+        summary_window.configure(bg='#f0f0f0')
         
         # Create main frame
-        main_frame = tk.Frame(summary_window, bg='#f8f9fa')
+        main_frame = tk.Frame(summary_window, bg='#f0f0f0')
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
         # Title
         title_label = tk.Label(main_frame, 
-                              text="TF-IDF BASED SUMMARY", 
+                              text="FREQUENCY-BASED SUMMARY", 
                               font=('Arial', 16, 'bold'),
-                              bg='#f8f9fa', fg='#1a5490')
+                              bg='#f0f0f0', fg='#2c3e50')
         title_label.pack(pady=(0, 10))
         
         # File info
         info_label = tk.Label(main_frame, 
-                             text=f"Source: {filename} | Method: TF-IDF | Sentences: {len(summary_sentences)}", 
+                             text=f"Source: {filename} | Method: Frequency-based | Sentences: {len(summary_sentences)}", 
                              font=('Arial', 10),
-                             bg='#f8f9fa', fg='#6c757d')
+                             bg='#f0f0f0', fg='#7f8c8d')
         info_label.pack(pady=(0, 15))
         
         # Summary text area
-        text_frame = tk.Frame(main_frame, bg='#f8f9fa')
+        text_frame = tk.Frame(main_frame, bg='#f0f0f0')
         text_frame.pack(fill=tk.BOTH, expand=True)
         
         summary_text = scrolledtext.ScrolledText(text_frame, 
                                                wrap=tk.WORD, 
                                                width=80, height=25,
                                                font=('Arial', 11),
-                                               bg='white', fg='#212529',
+                                               bg='white', fg='#2c3e50',
                                                relief=tk.FLAT, borderwidth=2)
         summary_text.pack(fill=tk.BOTH, expand=True)
         
@@ -196,7 +208,7 @@ class TFIDFSummarizer:
         summary_text.config(state=tk.DISABLED)
         
         # Buttons frame
-        buttons_frame = tk.Frame(main_frame, bg='#f8f9fa')
+        buttons_frame = tk.Frame(main_frame, bg='#f0f0f0')
         buttons_frame.pack(fill=tk.X, pady=(15, 0))
         
         # Save button
@@ -204,7 +216,7 @@ class TFIDFSummarizer:
                            text="💾 Save Summary", 
                            command=lambda: self.save_summary(filename),
                            font=('Arial', 11, 'bold'),
-                           bg='#0d6efd', fg='white',
+                           bg='#3498db', fg='white',
                            relief=tk.FLAT, padx=20, pady=8,
                            cursor='hand2')
         save_btn.pack(side=tk.LEFT, padx=(0, 10))
@@ -214,7 +226,7 @@ class TFIDFSummarizer:
                             text="✕ Close", 
                             command=summary_window.destroy,
                             font=('Arial', 11, 'bold'),
-                            bg='#dc3545', fg='white',
+                            bg='#e74c3c', fg='white',
                             relief=tk.FLAT, padx=20, pady=8,
                             cursor='hand2')
         close_btn.pack(side=tk.RIGHT)
@@ -231,7 +243,7 @@ class TFIDFSummarizer:
         
         # Suggest filename
         base_name = os.path.splitext(original_filename)[0]
-        suggested_name = f"{base_name}_tfidf_summary.txt"
+        suggested_name = f"{base_name}_frequency_summary.txt"
         
         file_path = filedialog.asksaveasfilename(
             title="Save Summary",
@@ -246,7 +258,7 @@ class TFIDFSummarizer:
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as file:
-                    file.write(f"TF-IDF BASED SUMMARY\n")
+                    file.write(f"FREQUENCY-BASED SUMMARY\n")
                     file.write(f"Source: {original_filename}\n")
                     file.write(f"Generated on: {tk.datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                     file.write("="*50 + "\n\n")
@@ -259,26 +271,26 @@ class TFIDFSummarizer:
     def create_gui(self):
         """Create the main GUI"""
         self.root = tk.Tk()
-        self.root.title("TF-IDF Text Summarizer")
+        self.root.title("Frequency-based Text Summarizer")
         self.root.geometry("600x400")
-        self.root.configure(bg='#e3f2fd')
+        self.root.configure(bg='#ecf0f1')
         
         # Main container
-        main_container = tk.Frame(self.root, bg='#e3f2fd')
+        main_container = tk.Frame(self.root, bg='#ecf0f1')
         main_container.pack(fill=tk.BOTH, expand=True, padx=30, pady=30)
         
         # Title
         title_label = tk.Label(main_container, 
-                              text="TF-IDF TEXT SUMMARIZER", 
+                              text="FREQUENCY-BASED TEXT SUMMARIZER", 
                               font=('Arial', 20, 'bold'),
-                              bg='#e3f2fd', fg='#1565c0')
+                              bg='#ecf0f1', fg='#2c3e50')
         title_label.pack(pady=(0, 10))
         
         # Subtitle
         subtitle_label = tk.Label(main_container, 
-                                 text="Extract key sentences using Term Frequency-Inverse Document Frequency", 
+                                 text="Extract key sentences based on word frequency analysis", 
                                  font=('Arial', 12),
-                                 bg='#e3f2fd', fg='#424242')
+                                 bg='#ecf0f1', fg='#7f8c8d')
         subtitle_label.pack(pady=(0, 30))
         
         # Instructions
@@ -286,9 +298,9 @@ class TFIDFSummarizer:
 📄 SUPPORTED FORMATS: PDF, Word (.docx), Text (.txt)
 
 🎯 HOW IT WORKS:
-• Calculates TF-IDF scores for terms in each sentence
-• Identifies sentences with highest statistical importance
-• Considers both term frequency and document-wide significance
+• Analyzes word frequency in your document
+• Scores sentences based on important word occurrences  
+• Selects top-ranking sentences for summary
 • Displays results as bullet points
 
 🔧 INSTRUCTIONS:
@@ -301,12 +313,12 @@ class TFIDFSummarizer:
         instructions_label = tk.Label(main_container, 
                                     text=instructions,
                                     font=('Arial', 11),
-                                    bg='#e3f2fd', fg='#37474f',
+                                    bg='#ecf0f1', fg='#34495e',
                                     justify=tk.LEFT)
         instructions_label.pack(pady=(0, 30))
         
         # Buttons frame
-        buttons_frame = tk.Frame(main_container, bg='#e3f2fd')
+        buttons_frame = tk.Frame(main_container, bg='#ecf0f1')
         buttons_frame.pack(pady=20)
         
         # Select file button
@@ -314,7 +326,7 @@ class TFIDFSummarizer:
                              text="📁 Select Document", 
                              command=self.select_file,
                              font=('Arial', 14, 'bold'),
-                             bg='#1976d2', fg='white',
+                             bg='#27ae60', fg='white',
                              relief=tk.FLAT, padx=30, pady=15,
                              cursor='hand2')
         select_btn.pack(pady=10)
@@ -323,7 +335,7 @@ class TFIDFSummarizer:
         exit_label = tk.Label(main_container, 
                              text="Press ESC to exit the application", 
                              font=('Arial', 10, 'italic'),
-                             bg='#e3f2fd', fg='#757575')
+                             bg='#ecf0f1', fg='#95a5a6')
         exit_label.pack(side=tk.BOTTOM, pady=(20, 0))
         
         # Bind ESC key to exit
@@ -355,14 +367,81 @@ if __name__ == "__main__":
     tk.datetime = datetime
     
     # Install required packages message
-    required_packages = ['nltk', 'scikit-learn', 'PyPDF2', 'python-docx', 'tkinter']
-    print("TF-IDF Text Summarizer")
+    required_packages = ['nltk', 'PyPDF2', 'python-docx', 'tkinter']
+    print("Frequency-based Text Summarizer")
     print("="*40)
     print("Required packages:", ", ".join(required_packages))
-    print("To install: pip install nltk scikit-learn PyPDF2 python-docx")
+    print("To install: pip install nltk PyPDF2 python-docx")
     print("\nStarting application...")
     print("Press ESC anytime to exit")
     print("="*40)
     
-    summarizer = TFIDFSummarizer()
+    summarizer = FrequencyBasedSummarizer()
     summarizer.run()
+
+# ----------------------- Importable API for new.py -----------------------
+
+import re as _re
+from typing import List as _List, Optional as _Optional, Set as _Set
+
+
+def frequency_based_summary(sentences: _List[str], num_sentences: int, stop_words: _Optional[_Set[str]] = None) -> str:
+    """Return a frequency-based summary string matching new.py's behavior.
+
+    - Scores sentences by word frequency computed over the whole text
+    - Returns top-N sentences in original order, joined by \n
+    This function is side-effect free and safe to import from new.py.
+    """
+    if not sentences or num_sentences <= 0:
+        return ""
+
+    try:
+        # Lazy import to avoid impacting GUI runtime unless used
+        from nltk.corpus import stopwords as _stopwords
+        from nltk.tokenize import word_tokenize as _word_tokenize
+        from collections import Counter as _Counter
+    except Exception:
+        # Fallbacks if NLTK isn't available; very basic tokenization
+        def _word_tokenize(text: str):
+            return text.split()
+        class _Counter(dict):
+            def __init__(self, iterable=None):
+                super().__init__()
+                if iterable:
+                    for item in iterable:
+                        self[item] = self.get(item, 0) + 1
+        _stopwords = None
+
+    # Stop words
+    effective_stop_words: _Set[str]
+    if stop_words is not None:
+        effective_stop_words = stop_words
+    else:
+        try:
+            effective_stop_words = set(_stopwords.words('english'))  # type: ignore[attr-defined]
+        except Exception:
+            effective_stop_words = set()
+
+    # Clean text: lower + remove non-alphanum
+    def _clean(text: str) -> str:
+        text = text.lower()
+        text = _re.sub(r'[^a-z0-9\s]', '', text)
+        return text
+
+    # Build word frequencies from the entire text
+    full_text_clean = _clean(" ".join(sentences))
+    words = _word_tokenize(full_text_clean)
+    word_frequencies = _Counter(w for w in words if w not in effective_stop_words)
+
+    # Score sentences
+    sentence_scores = {}
+    for idx, sentence in enumerate(sentences):
+        cleaned_sentence = _clean(sentence)
+        score = sum(word_frequencies.get(w, 0) for w in _word_tokenize(cleaned_sentence))
+        sentence_scores[idx] = score
+
+    # Select top N by score, then restore original order
+    sorted_by_score = sorted(sentence_scores.items(), key=lambda it: it[1], reverse=True)
+    selected_indices = sorted([i for i, _ in sorted_by_score[:num_sentences]])
+    summary = [sentences[i] for i in selected_indices]
+    return "\n".join(summary)
