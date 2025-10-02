@@ -23,6 +23,11 @@ from core_summarizer import (
 )
 from config import get_config, validate_config
 
+# ===== PERMANENT API KEY SETTING =====
+# Replace 'YOUR_API_KEY_HERE' with your actual Gemini API key
+PERMANENT_API_KEY = 'YOUR_API_KEY_HERE'  # Put your key here
+# =====================================
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -60,6 +65,10 @@ class IntegratedSummarizerApp:
         self.api_key = tk.StringVar()
         self.summary_size_percent = tk.DoubleVar(value=self.config['default_summary_percent'])
         self.stop_words = get_stop_words()
+        
+        # Load permanent API key
+        if PERMANENT_API_KEY != 'YOUR_API_KEY_HERE':
+            self.api_key.set(PERMANENT_API_KEY)
         
         # Async processing
         self.processing = False
@@ -198,12 +207,12 @@ class IntegratedSummarizerApp:
         """Generate Gemini summary asynchronously."""
         def _gemini_worker():
             try:
-                api_key_value = self.api_key.get()
-                if not api_key_value:
+        api_key_value = self.api_key.get()
+        if not api_key_value:
                     callback("ERROR: Gemini API Key not provided.")
                     return
-                
-                if not self.full_text:
+        
+        if not self.full_text:
                     callback("ERROR: No document text loaded.")
                     return
 
@@ -211,20 +220,20 @@ class IntegratedSummarizerApp:
                 max_chars = self.config['max_chars_for_gemini']
                 text_to_summarize = self.full_text[:max_chars]
 
-                client = genai.Client(api_key=api_key_value)
-                
-                prompt = (
-                    "You are an expert summarizer. Generate a concise, objective, and abstractive summary "
-                    f"of the following text. The summary should be approximately {self.summary_size_percent.get():.0f}% "
-                    "of the original length and must use entirely new sentences where possible. "
-                    "Text to summarize:\n\n"
-                    f"{text_to_summarize}"
-                )
-                
-                response = client.generate_content(
+            client = genai.Client(api_key=api_key_value)
+            
+            prompt = (
+                "You are an expert summarizer. Generate a concise, objective, and abstractive summary "
+                f"of the following text. The summary should be approximately {self.summary_size_percent.get():.0f}% "
+                "of the original length and must use entirely new sentences where possible. "
+                "Text to summarize:\n\n"
+                f"{text_to_summarize}"
+            )
+            
+            response = client.generate_content(
                     model=self.config['gemini_model'],
-                    contents=prompt
-                )
+                contents=prompt
+            )
                 callback(response.text)
                 
             except Exception as e:

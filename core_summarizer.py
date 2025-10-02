@@ -1,389 +1,254 @@
 """
-Core summarization algorithms with shared computation and improved quality.
-This module provides optimized, reusable summarization functions.
+Simple and effective summarization algorithms.
 """
 
 import re
-import numpy as np
-from typing import List, Set, Optional, Tuple, Dict, Any
+import math
+from typing import List, Set, Optional
 from collections import Counter
-from functools import lru_cache
-import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-class SummarizationCache:
-    """Cache for shared computations across summarization methods."""
-    
-    def __init__(self):
-        self._tfidf_matrix = None
-        self._vectorizer = None
-        self._sentences = None
-        self._cleaned_text = None
-        self._word_frequencies = None
-        self._stop_words = None
-    
-    def clear(self):
-        """Clear all cached data."""
-        self._tfidf_matrix = None
-        self._vectorizer = None
-        self._sentences = None
-        self._cleaned_text = None
-        self._word_frequencies = None
-        self._stop_words = None
-    
-    def get_tfidf_matrix(self, sentences: List[str], force_rebuild: bool = False):
-        """Get or build TF-IDF matrix for sentences."""
-        if force_rebuild or self._tfidf_matrix is None or self._sentences != sentences:
-            try:
-                from sklearn.feature_extraction.text import TfidfVectorizer
-                self._vectorizer = TfidfVectorizer(
-                    stop_words='english', 
-                    lowercase=True, 
-                    max_features=1000,
-                    ngram_range=(1, 2)  # Add bigrams
-                )
-                self._tfidf_matrix = self._vectorizer.fit_transform(sentences)
-                self._sentences = sentences.copy()
-                logger.info(f"Built TF-IDF matrix for {len(sentences)} sentences")
-            except ImportError:
-                logger.warning("scikit-learn not available, using fallback")
-                return None, None
-        return self._tfidf_matrix, self._vectorizer
-    
-    def get_word_frequencies(self, text: str, stop_words: Set[str]):
-        """Get or build word frequency counter."""
-        if (self._word_frequencies is None or 
-            self._cleaned_text != text or 
-            self._stop_words != stop_words):
-            self._cleaned_text = text
-            self._stop_words = stop_words
-            cleaned = self._clean_text(text)
-            words = self._tokenize_words(cleaned)
-            self._word_frequencies = Counter(w for w in words if w not in stop_words)
-        return self._word_frequencies
-    
-    @staticmethod
-    def _clean_text(text: str) -> str:
-        """Clean text for processing."""
-        text = text.lower()
-        text = re.sub(r'[^a-z0-9\s]', '', text)
-        return text
-    
-    @staticmethod
-    def _tokenize_words(text: str) -> List[str]:
-        """Tokenize text into words."""
-        try:
-            from nltk.tokenize import word_tokenize
-            return word_tokenize(text)
-        except ImportError:
-            return text.split()
-
-# Global cache instance
-_cache = SummarizationCache()
+# Simple stop words list
+STOP_WORDS = {
+    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'he', 'in', 'is', 'it', 'its', 
+    'of', 'on', 'that', 'the', 'to', 'was', 'will', 'with', 'i', 'you', 'this', 'they', 'them', 'their',
+    'we', 'our', 'your', 'his', 'her', 'him', 'she', 'me', 'my', 'mine', 'yours', 'theirs', 'ours'
+}
 
 def get_stop_words() -> Set[str]:
-    """Get English stop words with fallback."""
-    try:
-        from nltk.corpus import stopwords
-        return set(stopwords.words('english'))
-    except (ImportError, LookupError):
-        # Fallback stop words
-        return {'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 
-                'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the', 
-                'to', 'was', 'will', 'with'}
+    """Get English stop words."""
+    return STOP_WORDS
 
 def preprocess_sentences(sentences: List[str]) -> List[str]:
     """Clean and filter sentences."""
     if not sentences:
         return []
     
-    # Remove very short sentences and clean whitespace
     cleaned = []
     for sent in sentences:
         sent = sent.strip()
-        if len(sent) > 15:  # Minimum sentence length
+        if len(sent) > 10 and len(sent.split()) > 3:  # At least 3 words
             cleaned.append(sent)
     
-    return cleaned
+    return cleaned if cleaned else sentences  # Return original if nothing passes filter
 
-def calculate_mmr_scores(sentences: List[str], scores: Dict[int, float], 
-                        lambda_param: float = 0.7, max_sentences: int = 5) -> List[int]:
-    """Apply Maximal Marginal Relevance to reduce redundancy."""
-    if not sentences or not scores:
+def select_best_sentences(scores, num_sentences):
+    """Select top scoring sentences."""
+    if not scores:
         return []
     
-    # Convert to list of (score, index) tuples
-    scored_sentences = [(scores[i], i) for i in range(len(sentences)) if i in scores]
-    scored_sentences.sort(reverse=True)
-    
-    selected_indices = []
-    remaining_indices = list(range(len(sentences)))
-    
-    # Select first sentence (highest score)
-    if scored_sentences:
-        best_score, best_idx = scored_sentences[0]
-        selected_indices.append(best_idx)
-        remaining_indices.remove(best_idx)
-    
-    # Select remaining sentences using MMR
-    while len(selected_indices) < min(max_sentences, len(sentences)) and remaining_indices:
-        best_mmr_score = -1
-        best_mmr_idx = -1
-        
-        for idx in remaining_indices:
-            if idx not in scores:
-                continue
-                
-            # Relevance score
-            relevance = scores[idx]
-            
-            # Redundancy score (max similarity to already selected)
-            max_similarity = 0
-            if selected_indices:
-                try:
-                    from sklearn.metrics.pairwise import cosine_similarity
-                    tfidf_matrix, _ = _cache.get_tfidf_matrix(sentences)
-                    if tfidf_matrix is not None:
-                        similarities = cosine_similarity(
-                            tfidf_matrix[idx:idx+1], 
-                            tfidf_matrix[selected_indices]
-                        )
-                        max_similarity = float(np.max(similarities))
-                except Exception:
-                    # Fallback: simple word overlap
-                    selected_words = set()
-                    for sel_idx in selected_indices:
-                        selected_words.update(sentences[sel_idx].lower().split())
-                    current_words = set(sentences[idx].lower().split())
-                    if selected_words:
-                        max_similarity = len(selected_words & current_words) / len(selected_words | current_words)
-            
-            # MMR score
-            mmr_score = lambda_param * relevance - (1 - lambda_param) * max_similarity
-            
-            if mmr_score > best_mmr_score:
-                best_mmr_score = mmr_score
-                best_mmr_idx = idx
-        
-        if best_mmr_idx != -1:
-            selected_indices.append(best_mmr_idx)
-            remaining_indices.remove(best_mmr_idx)
-        else:
-            break
-    
-    return sorted(selected_indices)
+    # Sort by score and take top N
+    sorted_sentences = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    selected_indices = [idx for idx, _ in sorted_sentences[:num_sentences]]
+    return sorted(selected_indices)  # Keep original order
 
 def frequency_based_summary(sentences: List[str], num_sentences: int, 
                           stop_words: Optional[Set[str]] = None) -> str:
-    """Enhanced frequency-based summarization with MMR."""
+    """Frequency-based summarization - selects sentences with most important words."""
     if not sentences or num_sentences <= 0:
         return ""
     
-    sentences = preprocess_sentences(sentences)
-    if len(sentences) <= num_sentences:
-        return "\n".join(sentences)
+    processed_sentences = preprocess_sentences(sentences)
+    if len(processed_sentences) <= num_sentences:
+        return "\n".join(processed_sentences)
     
     if stop_words is None:
         stop_words = get_stop_words()
     
-    # Get word frequencies
-    full_text = " ".join(sentences)
-    word_frequencies = _cache.get_word_frequencies(full_text, stop_words)
+    # Count word frequencies across all sentences
+    all_words = []
+    for sentence in processed_sentences:
+        words = [w.lower() for w in sentence.split() if w.lower() not in stop_words and len(w) > 2]
+        all_words.extend(words)
     
-    # Score sentences
+    word_freq = Counter(all_words)
+    
+    # Score each sentence based on word frequencies
     sentence_scores = {}
-    for i, sentence in enumerate(sentences):
-        cleaned = _cache._clean_text(sentence)
-        words = _cache._tokenize_words(cleaned)
-        # Normalize by sentence length
-        score = sum(word_frequencies.get(w, 0) for w in words)
-        sentence_scores[i] = score / max(len(words), 1)
+    for i, sentence in enumerate(processed_sentences):
+        words = [w.lower() for w in sentence.split() if w.lower() not in stop_words]
+        if words:
+            score = sum(word_freq.get(w, 0) for w in words) / len(words)
+            sentence_scores[i] = score
+        else:
+            sentence_scores[i] = 0
     
-    # Apply MMR for diversity
-    selected_indices = calculate_mmr_scores(sentences, sentence_scores, 
-                                          max_sentences=num_sentences)
-    
-    summary = [sentences[i] for i in selected_indices]
+    # Select top scoring sentences
+    selected_indices = select_best_sentences(sentence_scores, num_sentences)
+    summary = [processed_sentences[i] for i in selected_indices]
     return "\n".join(summary)
 
 def position_based_summary(sentences: List[str], num_sentences: int) -> str:
-    """Enhanced position-based summarization with content weighting."""
+    """Position-based summarization - prefers sentences at beginning and end."""
     if not sentences or num_sentences <= 0:
         return ""
     
-    sentences = preprocess_sentences(sentences)
-    if len(sentences) <= num_sentences:
-        return "\n".join(sentences)
+    processed_sentences = preprocess_sentences(sentences)
+    if len(processed_sentences) <= num_sentences:
+        return "\n".join(processed_sentences)
     
-    stop_words = get_stop_words()
-    word_frequencies = _cache.get_word_frequencies(" ".join(sentences), stop_words)
-    
-    # Score sentences with position and content
+    # Score sentences based on position
     sentence_scores = {}
-    for i, sentence in enumerate(sentences):
-        # Position score (higher for beginning and end)
-        if i < len(sentences) // 3:
+    for i, sentence in enumerate(processed_sentences):
+        # Higher score for beginning and end sentences
+        if i < len(processed_sentences) // 3:
             position_score = 3.0
-        elif i > 2 * len(sentences) // 3:
+        elif i > 2 * len(processed_sentences) // 3:
             position_score = 2.0
         else:
             position_score = 1.0
         
-        # Content score
-        cleaned = _cache._clean_text(sentence)
-        words = _cache._tokenize_words(cleaned)
-        content_score = sum(word_frequencies.get(w, 0) for w in words)
-        content_score = content_score / max(len(words), 1)
+        # Bonus for reasonable length
+        word_count = len(sentence.split())
+        length_bonus = min(word_count / 15, 1.5)
         
-        # Length bonus (prefer moderate length)
-        length_score = min(len(words) / 20, 1.0)
-        
-        sentence_scores[i] = position_score * content_score * (1 + length_score)
+        sentence_scores[i] = position_score * length_bonus
     
-    # Apply MMR
-    selected_indices = calculate_mmr_scores(sentences, sentence_scores, 
-                                          max_sentences=num_sentences)
-    
-    summary = [sentences[i] for i in selected_indices]
+    # Select top scoring sentences
+    selected_indices = select_best_sentences(sentence_scores, num_sentences)
+    summary = [processed_sentences[i] for i in selected_indices]
     return "\n".join(summary)
 
 def tfidf_based_summary(sentences: List[str], num_sentences: int) -> str:
-    """Enhanced TF-IDF summarization with sublinear scaling."""
+    """TF-IDF based summarization - finds sentences with unique important words."""
     if not sentences or num_sentences <= 0:
         return ""
     
-    sentences = preprocess_sentences(sentences)
-    if len(sentences) <= num_sentences:
-        return "\n".join(sentences)
+    processed_sentences = preprocess_sentences(sentences)
+    if len(processed_sentences) <= num_sentences:
+        return "\n".join(processed_sentences)
     
-    try:
-        tfidf_matrix, vectorizer = _cache.get_tfidf_matrix(sentences)
-        if tfidf_matrix is None:
-            return "\n".join(sentences[:num_sentences])
-        
-        # Use sublinear TF scaling (log + 1)
-        tfidf_array = tfidf_matrix.toarray()
-        tfidf_array = np.log(tfidf_array + 1)
-        
-        # Score sentences
-        sentence_scores = {}
-        for i in range(len(sentences)):
-            score = np.sum(tfidf_array[i])
-            # Normalize by sentence length
-            sentence_length = len(sentences[i].split())
-            sentence_scores[i] = score / max(sentence_length, 1)
-        
-        # Apply MMR
-        selected_indices = calculate_mmr_scores(sentences, sentence_scores, 
-                                              max_sentences=num_sentences)
-        
-        summary = [sentences[i] for i in selected_indices]
-        return "\n".join(summary)
-        
-    except Exception as e:
-        logger.error(f"TF-IDF summarization failed: {e}")
-        return "\n".join(sentences[:num_sentences])
+    # Get words for each sentence
+    sentence_words = []
+    all_words = set()
+    for sentence in processed_sentences:
+        words = [w.lower() for w in sentence.split() if len(w) > 2 and w.lower() not in STOP_WORDS]
+        sentence_words.append(words)
+        all_words.update(words)
+    
+    # Calculate IDF for each word
+    word_idf = {}
+    for word in all_words:
+        doc_count = sum(1 for words in sentence_words if word in words)
+        word_idf[word] = math.log(len(processed_sentences) / max(doc_count, 1))
+    
+    # Score sentences using TF-IDF
+    sentence_scores = {}
+    for i, words in enumerate(sentence_words):
+        if not words:
+            sentence_scores[i] = 0
+            continue
+            
+        word_counts = Counter(words)
+        score = 0
+        for word, count in word_counts.items():
+            tf = count / len(words)  # Term frequency
+            idf = word_idf.get(word, 0)  # Inverse document frequency
+            score += tf * idf
+        sentence_scores[i] = score
+    
+    # Select top scoring sentences
+    selected_indices = select_best_sentences(sentence_scores, num_sentences)
+    summary = [processed_sentences[i] for i in selected_indices]
+    return "\n".join(summary)
 
 def textrank_summary(sentences: List[str], num_sentences: int) -> str:
-    """Enhanced TextRank with sparse similarity and thresholding."""
+    """TextRank-like summarization - finds sentences most similar to others."""
     if not sentences or num_sentences <= 0:
         return ""
     
-    sentences = preprocess_sentences(sentences)
-    if len(sentences) <= num_sentences:
-        return "\n".join(sentences)
+    processed_sentences = preprocess_sentences(sentences)
+    if len(processed_sentences) <= num_sentences:
+        return "\n".join(processed_sentences)
     
-    try:
-        import networkx as nx
-        from sklearn.metrics.pairwise import cosine_similarity
-        
-        tfidf_matrix, _ = _cache.get_tfidf_matrix(sentences)
-        if tfidf_matrix is None:
-            return "\n".join(sentences[:num_sentences])
-        
-        # Build similarity matrix with threshold
-        similarity_matrix = cosine_similarity(tfidf_matrix)
-        threshold = 0.1  # Only keep significant similarities
-        similarity_matrix[similarity_matrix < threshold] = 0
-        
-        # Create graph
-        graph = nx.from_numpy_array(similarity_matrix)
-        
-        # Apply PageRank with damping
-        scores = nx.pagerank(graph, alpha=0.85, max_iter=100)
-        
-        # Apply MMR
-        selected_indices = calculate_mmr_scores(sentences, scores, 
-                                              max_sentences=num_sentences)
-        
-        summary = [sentences[i] for i in selected_indices]
-        return "\n".join(summary)
-        
-    except Exception as e:
-        logger.error(f"TextRank summarization failed: {e}")
-        return "\n".join(sentences[:num_sentences])
+    # Get word sets for each sentence
+    sentence_word_sets = []
+    for sentence in processed_sentences:
+        words = set(w.lower() for w in sentence.split() if len(w) > 2 and w.lower() not in STOP_WORDS)
+        sentence_word_sets.append(words)
+    
+    # Calculate similarity scores
+    sentence_scores = {}
+    for i, words_i in enumerate(sentence_word_sets):
+        score = 0
+        for j, words_j in enumerate(sentence_word_sets):
+            if i != j and words_i and words_j:
+                # Jaccard similarity
+                intersection = len(words_i & words_j)
+                union = len(words_i | words_j)
+                if union > 0:
+                    score += intersection / union
+        sentence_scores[i] = score
+    
+    # Select top scoring sentences
+    selected_indices = select_best_sentences(sentence_scores, num_sentences)
+    summary = [processed_sentences[i] for i in selected_indices]
+    return "\n".join(summary)
 
 def clustering_based_summary(sentences: List[str], num_sentences: int) -> str:
-    """Enhanced clustering with medoid selection and diversity."""
+    """Clustering-like summarization - selects diverse sentences."""
     if not sentences or num_sentences <= 0:
         return ""
     
-    sentences = preprocess_sentences(sentences)
-    if len(sentences) <= num_sentences:
-        return "\n".join(sentences)
+    processed_sentences = preprocess_sentences(sentences)
+    if len(processed_sentences) <= num_sentences:
+        return "\n".join(processed_sentences)
     
-    try:
-        from sklearn.cluster import KMeans
-        from sklearn.metrics.pairwise import cosine_similarity
+    # Get word sets for each sentence
+    sentence_word_sets = []
+    for sentence in processed_sentences:
+        words = set(w.lower() for w in sentence.split() if len(w) > 2 and w.lower() not in STOP_WORDS)
+        sentence_word_sets.append(words)
+    
+    selected_indices = []
+    
+    # Start with the sentence that has most unique words
+    word_uniqueness = []
+    for i, words in enumerate(sentence_word_sets):
+        unique_score = len(words)
+        word_uniqueness.append((unique_score, i))
+    
+    word_uniqueness.sort(reverse=True)
+    if word_uniqueness:
+        selected_indices.append(word_uniqueness[0][1])
+    
+    # Add most diverse sentences
+    while len(selected_indices) < num_sentences and len(selected_indices) < len(processed_sentences):
+        best_diversity = -1
+        best_idx = -1
         
-        tfidf_matrix, _ = _cache.get_tfidf_matrix(sentences)
-        if tfidf_matrix is None:
-            return "\n".join(sentences[:num_sentences])
-        
-        n_clusters = min(num_sentences, len(sentences))
-        if n_clusters < 1:
-            return ""
-        
-        # KMeans clustering
-        try:
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init='auto')
-        except TypeError:
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        
-        kmeans.fit(tfidf_matrix)
-        
-        # Select medoids (closest to centroids)
-        selected_indices = []
-        for i in range(n_clusters):
-            cluster_mask = kmeans.labels_ == i
-            if not np.any(cluster_mask):
+        for i, words_i in enumerate(sentence_word_sets):
+            if i in selected_indices:
                 continue
-                
-            cluster_indices = np.where(cluster_mask)[0]
-            cluster_center = kmeans.cluster_centers_[i]
             
-            # Find closest sentence to centroid
-            similarities = cosine_similarity(
-                tfidf_matrix[cluster_indices], 
-                [cluster_center]
-            ).flatten()
+            # Calculate diversity score (how different from selected sentences)
+            diversity = 0
+            for sel_idx in selected_indices:
+                words_sel = sentence_word_sets[sel_idx]
+                if words_i and words_sel:
+                    intersection = len(words_i & words_sel)
+                    union = len(words_i | words_sel)
+                    if union > 0:
+                        diversity += 1 - (intersection / union)  # 1 - similarity = diversity
             
-            best_idx = cluster_indices[np.argmax(similarities)]
-            if best_idx not in selected_indices:
-                selected_indices.append(int(best_idx))
+            avg_diversity = diversity / len(selected_indices) if selected_indices else 1
+            if avg_diversity > best_diversity:
+                best_diversity = avg_diversity
+                best_idx = i
         
-        # Sort by original order
-        selected_indices.sort()
-        summary = [sentences[i] for i in selected_indices]
-        return "\n".join(summary)
-        
-    except Exception as e:
-        logger.error(f"Clustering summarization failed: {e}")
-        return "\n".join(sentences[:num_sentences])
+        if best_idx != -1:
+            selected_indices.append(best_idx)
+        else:
+            # If no more diverse sentences, just add remaining in order
+            for i in range(len(processed_sentences)):
+                if i not in selected_indices:
+                    selected_indices.append(i)
+                    break
+            break
+    
+    selected_indices.sort()  # Keep original order
+    summary = [processed_sentences[i] for i in selected_indices]
+    return "\n".join(summary)
 
 def clear_cache():
-    """Clear the global summarization cache."""
-    _cache.clear()
+    """Clear cache - simplified version."""
+    pass  # No cache to clear in simplified version

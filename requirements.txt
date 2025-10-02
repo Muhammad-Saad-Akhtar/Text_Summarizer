@@ -1,12 +1,11 @@
-# Core dependencies
-nltk>=3.8
-scikit-learn>=1.3.0
-numpy>=1.24.0
-networkx>=3.0
+# Essential dependencies for Text Summarizer
 
 # Document processing
 PyPDF2>=3.0.0
 python-docx>=0.8.11
+
+# Text processing (optional - fallback included in code)
+nltk>=3.8
 
 # Evaluation
 rouge-score>=0.1.2
@@ -14,6 +13,5 @@ rouge-score>=0.1.2
 # AI/ML
 google-generativeai>=0.3.0
 
-# Optional: For better performance
-# sentence-transformers>=2.2.0  # Uncomment for advanced embeddings
-# spacy>=3.6.0  # Uncomment for advanced NLP
+# GUI (included with Python)
+# tkinter - comes with Python

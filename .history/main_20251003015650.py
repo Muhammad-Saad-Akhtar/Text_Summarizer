@@ -23,10 +23,10 @@ from core_summarizer import (
 )
 from config import get_config, validate_config
 
-# ===== API KEY SETTING =====
-# Enter your API key in the GUI or set it here
-PERMANENT_API_KEY = 'AIzaSyAXGety2G4VtX8tEts42x6L0br1CL4ZntQ'  # Replace with your key or enter in GUI
-# ===========================
+# ===== PERMANENT API KEY SETTING =====
+# Replace 'YOUR_API_KEY_HERE' with your actual Gemini API key
+PERMANENT_API_KEY = 'AIzaSyCl-ARdybtfe6KNRWJQEL2L4czDgFj7744'  # Put your key here
+# =====================================
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -111,9 +111,11 @@ class IntegratedSummarizerApp:
     def select_file(self):
         """Opens a file dialog for document selection and loads text."""
         file_path = filedialog.askopenfilename(
-            title="Select a document",
+            defaultextension=".txt",
             filetypes=[
-                ("Supported Documents", "*.txt *.pdf *.docx"),
+                ("Text documents", "*.txt"),
+                ("PDF documents", "*.pdf"),
+                ("Word documents", "*.docx"),
                 ("All files", "*.*")
             ]
         )
@@ -264,25 +266,16 @@ class IntegratedSummarizerApp:
 
     def run_summarization(self):
         """Execute all summarization methods with enhanced error handling."""
-        print("DEBUG: run_summarization called")
-        
         if not self.full_text:
-            print("DEBUG: No full_text found")
             messagebox.showwarning("Warning", "Please select and load a document first.")
             return
 
         if self.processing:
-            print("DEBUG: Already processing")
             messagebox.showwarning("Warning", "Summarization already in progress.")
             return
 
-        print(f"DEBUG: full_text length: {len(self.full_text)}")
-        print(f"DEBUG: sentences count: {len(self.sentences)}")
-        
         self.processing = True
         num_sentences = self.calculate_summary_size()
-        print(f"DEBUG: num_sentences to generate: {num_sentences}")
-        
         self.clear_summaries()
 
         # Show progress
@@ -294,54 +287,34 @@ class IntegratedSummarizerApp:
             # Clear cache for fresh computation
             clear_cache()
             
-            # Run the 5 Extractive Summarizers
-            print(f"Starting summarization with {num_sentences} sentences from {len(self.sentences)} total")
+            # Run the 5 Extractive Summarizers using enhanced core functions
+            logger.info(f"Starting summarization with {num_sentences} sentences from {len(self.sentences)} total")
             
-            print("DEBUG: Running Frequency summary...")
             self.summaries['Frequency'] = frequency_based_summary(self.sentences, num_sentences, self.stop_words)
-            print(f"DEBUG: Frequency result: {len(self.summaries['Frequency'])} chars")
-            
-            print("DEBUG: Running Position summary...")
             self.summaries['Position'] = position_based_summary(self.sentences, num_sentences)
-            print(f"DEBUG: Position result: {len(self.summaries['Position'])} chars")
-            
-            print("DEBUG: Running TF-IDF summary...")
             self.summaries['TF-IDF'] = tfidf_based_summary(self.sentences, num_sentences)
-            print(f"DEBUG: TF-IDF result: {len(self.summaries['TF-IDF'])} chars")
-            
-            print("DEBUG: Running TextRank summary...")
             self.summaries['TextRank'] = textrank_summary(self.sentences, num_sentences)
-            print(f"DEBUG: TextRank result: {len(self.summaries['TextRank'])} chars")
-            
-            print("DEBUG: Running Clustering summary...")
             self.summaries['Clustering'] = clustering_based_summary(self.sentences, num_sentences)
-            print(f"DEBUG: Clustering result: {len(self.summaries['Clustering'])} chars")
 
-            print("DEBUG: Displaying results in GUI...")
             # Display the 5 results in the main window
             for name, summary in self.summaries.items():
-                print(f"DEBUG: Displaying {name}: {summary[:50]}...")
                 widget = self.text_widgets[name]
                 widget.config(state=tk.NORMAL)
                 widget.insert(tk.END, summary)
                 widget.config(state=tk.DISABLED)
 
-            print("DEBUG: Opening comparison window...")
             # Hide progress and open comparison window
             self._hide_progress()
             self.open_comparison_window()
             
         except Exception as e:
-            print(f"Summarization error: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Summarization error: {e}")
             messagebox.showerror("Execution Error", f"An error occurred during summarization: {e}")
             self._hide_progress()
             
         finally:
             self.master.config(cursor="")
             self.processing = False
-            print("DEBUG: run_summarization completed")
 
     def open_comparison_window(self):
         """Creates the second window for Gemini and comparison with async processing."""

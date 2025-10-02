@@ -25,7 +25,7 @@ from config import get_config, validate_config
 
 # ===== API KEY SETTING =====
 # Enter your API key in the GUI or set it here
-PERMANENT_API_KEY = 'AIzaSyAXGety2G4VtX8tEts42x6L0br1CL4ZntQ'  # Replace with your key or enter in GUI
+PERMANENT_API_KEY = 'AIzaSyCl-ARdybtfe6KNRWJQEL2L4czDgFj7744'  # Replace with your key or enter in GUI
 # ===========================
 
 # Configure logging
