@@ -25,7 +25,7 @@ from config import get_config, validate_config
 
 # ===== API KEY SETTING =====
 
-PERMANENT_API_KEY = 'Enter API Key Here'  
+PERMANENT_API_KEY = 'AIzaSyAXGety2G4VtX8tEts42x6L0br1CL4ZntQ'  
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -66,7 +66,7 @@ class IntegratedSummarizerApp:
         self.stop_words = get_stop_words()
         
         # Load permanent API key
-        if PERMANENT_API_KEY != 'Enter API Key Here'  :
+        if PERMANENT_API_KEY != 'AIzaSyAXGety2G4VtX8tEts42x6L0br1CL4ZntQ':
             self.api_key.set(PERMANENT_API_KEY)
         
         # Async processing
